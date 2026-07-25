@@ -1,0 +1,9 @@
+# Build output
+deselectfolders.app/
+icon.iconset/
+AppIcon.icns
+*.o
+*.swiftmodule
+
+# macOS
+.DS_Store
