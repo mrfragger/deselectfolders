@@ -1,0 +1,23 @@
+# .github/workflows/release.yml
+name: Build and Release DMG
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install librsvg
+        run: brew install librsvg
+      - name: Build app
+        run: |
+          chmod +x build.sh build_dmg.sh
+          ./build.sh
+          ./build_dmg.sh
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: '*.dmg'
