@@ -20,5 +20,7 @@
     <true/>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>deselectfolders needs permission to ask Finder which folder is selected in order to zip it.</string>
 </dict>
 </plist>

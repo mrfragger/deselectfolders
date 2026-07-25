@@ -10,6 +10,7 @@ your selection.
 
 - `⌃⇧↑` — Deselect folders from current selection
 - `⌃⇧↓` — Deselect files matching configured extensions (default: jpg, pdf)
+- `⌃⇧→` — zip folder excluding hidden MacOS files .DS_Store,  __MACOSX*
 
 Edit the extension list from the menu bar icon → "Edit Extensions…"
 
@@ -25,6 +26,10 @@ xattr -d com.apple.quarantine /Applications/deselectfolders.app
 
 Grant Accessibility access when prompted
 (System Settings → Privacy & Security → Accessibility).
+zip folder wants access to control Finder
+```bash
+zip -r dir.zip . -x "*.DS_Store" -x "*__MACOSX*"
+```
 
 ## Requirements to Build and Install
 

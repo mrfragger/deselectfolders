@@ -7,8 +7,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     var hotKeyRefFolders: EventHotKeyRef?
     var hotKeyRefExtensions: EventHotKeyRef?
+    var hotKeyRefZip: EventHotKeyRef?
     let hotKeyIDFolders = EventHotKeyID(signature: OSType(0x44534C46), id: 1)    // ⌃⇧↑
     let hotKeyIDExtensions = EventHotKeyID(signature: OSType(0x44534C46), id: 2) // ⌃⇧↓
+    let hotKeyIDZip = EventHotKeyID(signature: OSType(0x44534C46), id: 3)        // ⌃⇧→
 
     let defaults = UserDefaults.standard
     let extensionsKey = "deselectExtensions"
@@ -25,6 +27,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let ref = hotKeyRefExtensions {
             UnregisterEventHotKey(ref)
         }
+        if let ref = hotKeyRefZip {
+            UnregisterEventHotKey(ref)
+        }
     }
 
     func setupStatusItem() {
@@ -39,6 +44,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Deselect by Extension  ⌃⇧↓", action: #selector(runDeselectExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Extensions…", action: #selector(editExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Zip Folder (no .DS_Store) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
 
         let referenceTitle = NSMenuItem(title: "Finder Shortcuts", action: nil, keyEquivalent: "")
         referenceTitle.isEnabled = false
@@ -50,7 +57,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ("Collapse selected folders", "⌘←"),
             ("Expand everything recursively", "⌥⌘→"),
             ("Toggle hidden files", "⌘⇧."),
-            ("Copy folder as path", "right-click + ⌥")
+            ("Copy folder as path", "right-click + ⌥"),
+            ("Copy file(s) ⌘C", "Paste ⌥⌘V"),
+            ("Delete immediately", "⌥⌘⌫"),
+            ("Option+ g© iˆ r® y¥", "2™ 3£ 8• 0º =≠"),
+            ("Option+ K OØ Tˇ V◊ X˛ Z¸", "|» ?¿ +±"),
         ]
 
         for (label, keys) in shortcuts {
@@ -79,16 +90,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
 
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
-            if hkID.id == 1 {
+            switch hkID.id {
+            case 1:
                 appDelegate.runDeselectFolders()
-            } else if hkID.id == 2 {
+            case 2:
                 appDelegate.runDeselectExtensions()
+            case 3:
+                appDelegate.runZipFolder()
+            default:
+                break
             }
             return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
 
         RegisterEventHotKey(UInt32(kVK_UpArrow), UInt32(controlKey | shiftKey), hotKeyIDFolders, GetApplicationEventTarget(), 0, &hotKeyRefFolders)
         RegisterEventHotKey(UInt32(kVK_DownArrow), UInt32(controlKey | shiftKey), hotKeyIDExtensions, GetApplicationEventTarget(), 0, &hotKeyRefExtensions)
+        RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey), hotKeyIDZip, GetApplicationEventTarget(), 0, &hotKeyRefZip)
     }
 
     @objc func runDeselectFolders() {
@@ -97,6 +114,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func runDeselectExtensions() {
         deselectByExtension(getSavedExtensions())
+    }
+
+    @objc func runZipFolder() {
+        zipSelectedFolder()
     }
 
     @objc func editExtensions() {
@@ -197,6 +218,83 @@ func deselectByExtension(_ extensions: [String]) {
     }
 }
 
+func zipSelectedFolder() {
+    guard let folderPaths = getSelectedFolderPaths() else {
+        showErrorAlert(
+            title: "Zip Failed",
+            message: "Could not read Finder's selection. Make sure Automation access is granted: System Settings → Privacy & Security → Automation → deselectfolders → Finder."
+        )
+        return
+    }
+
+    guard folderPaths.count == 1 else {
+        if folderPaths.isEmpty {
+            showErrorAlert(title: "No Folder Selected", message: "Select exactly one folder in Finder, then try again.")
+        } else {
+            showErrorAlert(title: "Too Many Folders Selected", message: "Select exactly one folder. You currently have \(folderPaths.count) folders selected.")
+        }
+        return
+    }
+
+    let folderURL = URL(fileURLWithPath: folderPaths[0])
+    let folderName = folderURL.lastPathComponent
+    let zipName = "\(folderName).zip"
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+    process.currentDirectoryURL = folderURL
+    process.arguments = ["-r", zipName, ".", "-x", "*.DS_Store", "-x", "*__MACOSX*", "-x", zipName]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus == 0 {
+            showInfoAlert(title: "Zipped", message: "Created \(zipName) inside \(folderName)")
+        } else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
+            showErrorAlert(title: "Zip Failed", message: output)
+        }
+    } catch {
+        showErrorAlert(title: "Zip Failed", message: error.localizedDescription)
+    }
+}
+
+func getSelectedFolderPaths() -> [String]? {
+    let script = """
+    tell application "Finder"
+        set theSelection to selection
+        set folderPaths to {}
+        repeat with theItem in theSelection
+            if (class of theItem is folder) then
+                set end of folderPaths to (POSIX path of (theItem as alias))
+            end if
+        end repeat
+        return folderPaths
+    end tell
+    """
+    guard let appleScript = NSAppleScript(source: script) else { return nil }
+    var errorDict: NSDictionary?
+    let result = appleScript.executeAndReturnError(&errorDict)
+    if errorDict != nil {
+        return nil
+    }
+
+    var paths: [String] = []
+    if result.numberOfItems > 0 {
+        for i in 1...result.numberOfItems {
+            if let item = result.atIndex(i), let str = item.stringValue {
+                paths.append(str)
+            }
+        }
+    }
+    return paths
+}
+
 func showAccessibilityAlert() {
     let alert = NSAlert()
     alert.messageText = "Accessibility Permission Required"
@@ -206,6 +304,24 @@ func showAccessibilityAlert() {
     if alert.runModal() == .alertFirstButtonReturn {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
+}
+
+func showErrorAlert(title: String, message: String) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = title
+    alert.informativeText = message
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
+}
+
+func showInfoAlert(title: String, message: String) {
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = title
+    alert.informativeText = message
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
 }
 
 func isFolder(_ row: AXUIElement) -> Bool {
