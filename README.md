@@ -14,6 +14,9 @@ your selection.
 
 Edit the extension list from the menu bar icon → "Edit Extensions…"
 
+scripts to copy to clipboard to paste into Terminal
+System Info (copy) = report opens in TextEdit
+
 ![](images/menu.jpg)
 
 ![](images/example.jpg)

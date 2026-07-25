@@ -32,6 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
@@ -44,7 +45,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Deselect by Extension  ⌃⇧↓", action: #selector(runDeselectExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Extensions…", action: #selector(editExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Zip Folder (no .DS_Store) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Zip Folder  ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "System Info (copy)", action: #selector(copySystemProfilerScript), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
 
         let referenceTitle = NSMenuItem(title: "Finder Shortcuts", action: nil, keyEquivalent: "")
@@ -74,6 +77,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
 
+
         menu.items.forEach { if $0.action != nil { $0.target = self } }
         statusItem.menu = menu
     }
@@ -81,6 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func quit() {
         NSApp.terminate(nil)
     }
+
 
     func registerHotKeys() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: OSType(kEventHotKeyPressed))
@@ -108,6 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey), hotKeyIDZip, GetApplicationEventTarget(), 0, &hotKeyRefZip)
     }
 
+
     @objc func runDeselectFolders() {
         deselectFolders()
     }
@@ -119,6 +125,85 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func runZipFolder() {
         zipSelectedFolder()
     }
+
+    @objc func copySystemProfilerScript() {
+        let script = """
+        tmpfile="/tmp/sysinfo.$(date +%Y%m%d_%H%M%S)_$$.txt"
+
+        echo "========= Date =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        date >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= CPU =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        sysctl -n machdep.cpu.brand_string >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        for section in SPSoftwareDataType SPStorageDataType SPDisplaysDataType SPAudioDataType SPBluetoothDataType SPUSBDataType SPThunderboltDataType SPPowerDataType SPNetworkDataType; do
+          echo "========= $section =========" >> "$tmpfile"
+          echo >> "$tmpfile"
+          system_profiler "$section" >> "$tmpfile"
+          echo >> "$tmpfile"
+        done
+
+        echo "========= Network Hardware Ports =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        networksetup -listallhardwareports >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= Wi-Fi Info =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        networksetup -getinfo Wi-Fi >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= Wi-Fi DNS Servers =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        networksetup -getdnsservers Wi-Fi >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= Memory (vm_stat) =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        vm_stat >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= Disk Layout (diskutil list) =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        diskutil list >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= Home Folder Sizes =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        du -sh ~/Desktop ~/Music ~/Documents ~/Downloads ~/Pictures ~/Movies 2>/dev/null | sort -rh >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        echo "========= Brew Installed Apps (30MB+) =========" >> "$tmpfile"
+        echo >> "$tmpfile"
+        brew_cellar=$(brew --cellar)
+        du -sk "$brew_cellar"/*/* 2>/dev/null | awk -v min=30720 '$1 >= min' | sort -rn | awk -F'/' '{
+          split($0, a, "\\t")
+          size_kb = a[1]
+          path = $0
+          sub(/^[0-9]+\\t/, "", path)
+          n = split(path, parts, "/")
+          name = parts[n-1] " " parts[n]
+          if (size_kb >= 1048576) {
+            printf "%-20s %.1fG\\n", name, size_kb/1048576
+          } else {
+            printf "%-20s %dM\\n", name, size_kb/1024
+          }
+        }' >> "$tmpfile"
+        echo >> "$tmpfile"
+
+        open -a TextEdit "$tmpfile"
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(script, forType: .string)
+
+        showInfoAlert(title: "Copied", message: "System info script copied — paste into Terminal and press Enter. Report opens automatically in TextEdit.")
+    }
+
 
     @objc func editExtensions() {
         let alert = NSAlert()
@@ -135,6 +220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+
     func getSavedExtensions() -> [String] {
         let raw = defaults.string(forKey: extensionsKey) ?? "jpg, pdf"
         return raw
@@ -147,6 +233,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         defaults.set(text, forKey: extensionsKey)
     }
 }
+
 
 func deselectFolders() {
     guard AXIsProcessTrusted() else {
@@ -181,6 +268,7 @@ func deselectFolders() {
         }
     }
 }
+
 
 func deselectByExtension(_ extensions: [String]) {
     guard AXIsProcessTrusted() else {
@@ -217,6 +305,7 @@ func deselectByExtension(_ extensions: [String]) {
         }
     }
 }
+
 
 func zipSelectedFolder() {
     guard let folderPaths = getSelectedFolderPaths() else {
@@ -263,6 +352,7 @@ func zipSelectedFolder() {
         showErrorAlert(title: "Zip Failed", message: error.localizedDescription)
     }
 }
+
 
 func getSelectedFolderPaths() -> [String]? {
     let script = """
