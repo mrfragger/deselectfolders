@@ -1,9 +1,11 @@
-# .github/workflows/release.yml
 name: Build and Release DMG
 on:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
