@@ -17,21 +17,27 @@ Edit the extension list from the menu bar icon → "Edit Extensions…"
 
 ![](images/example.jpg)
 
+download dmg from releases
+
+```bash
+xattr -d com.apple.quarantine /Applications/deselectfolders.app
+```
+
 ## Requirements
 
 - macOS 11+
 - Accessibility permission (prompted on first use)
-- [librsvg](https://formulae.brew.sh/formula/librsvg) for building the app icon: `brew install librsvg`
+- [librsvg] for building the app icon: `brew install librsvg`
 
 ## Build & Install
 
-\`\`\`bash
+```bash
 chmod +x build.sh
 ./build.sh
 cp -R deselectfolders.app /Applications/
 xattr -d com.apple.quarantine /Applications/deselectfolders.app
 open /Applications/deselectfolders.app
-\`\`\`
+```
 
 Grant Accessibility access when prompted
 (System Settings → Privacy & Security → Accessibility).
