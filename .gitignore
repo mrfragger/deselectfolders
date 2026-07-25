@@ -3,6 +3,8 @@ deselectfolders.app/
 icon.iconset/
 AppIcon.icns
 *.o
+*.dmg
+dmg_staging/
 *.swiftmodule
 
 # macOS
