@@ -45,9 +45,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Deselect by Extension  ⌃⇧↓", action: #selector(runDeselectExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Extensions…", action: #selector(editExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Zip Folder  ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Zip Folder (no .DS_Store) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "System Info (copy)", action: #selector(copySystemProfilerScript), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "System Info (copy to clipboard)", action: #selector(copySystemProfilerScript), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
 
         let referenceTitle = NSMenuItem(title: "Finder Shortcuts", action: nil, keyEquivalent: "")
