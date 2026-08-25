@@ -306,7 +306,6 @@ func deselectByExtension(_ extensions: [String]) {
     }
 }
 
-
 func zipSelectedFolder() {
     guard let folderPaths = getSelectedFolderPaths() else {
         showErrorAlert(
@@ -328,6 +327,7 @@ func zipSelectedFolder() {
     let folderURL = URL(fileURLWithPath: folderPaths[0])
     let folderName = folderURL.lastPathComponent
     let zipName = "\(folderName).zip"
+    let parentURL = folderURL.deletingLastPathComponent()
 
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -342,7 +342,19 @@ func zipSelectedFolder() {
         try process.run()
         process.waitUntilExit()
         if process.terminationStatus == 0 {
-            showInfoAlert(title: "Zipped", message: "Created \(zipName) inside \(folderName)")
+            // Move the zip from inside the folder to the parent directory
+            let sourceZip = folderURL.appendingPathComponent(zipName)
+            let destZip = parentURL.appendingPathComponent(zipName)
+
+            do {
+                if FileManager.default.fileExists(atPath: destZip.path) {
+                    try FileManager.default.removeItem(at: destZip)
+                }
+                try FileManager.default.moveItem(at: sourceZip, to: destZip)
+                showInfoAlert(title: "Zipped", message: "Created \(zipName) in \(parentURL.lastPathComponent)")
+            } catch {
+                showErrorAlert(title: "Zip Created, Move Failed", message: "\(zipName) was created inside \(folderName) but could not be moved: \(error.localizedDescription)")
+            }
         } else {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? "Unknown error"
@@ -352,7 +364,6 @@ func zipSelectedFolder() {
         showErrorAlert(title: "Zip Failed", message: error.localizedDescription)
     }
 }
-
 
 func getSelectedFolderPaths() -> [String]? {
     let script = """
