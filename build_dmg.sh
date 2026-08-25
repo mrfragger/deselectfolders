@@ -2,12 +2,10 @@
 set -e
 
 APP_NAME="deselectfolders"
-VERSION="3.0"
-# DMG_NAME="${APP_NAME}-${VERSION}"
-DMG_NAME="${APP_NAME}"
+VERSION="${GITHUB_REF_NAME:-dev}"   # uses the pushed tag (e.g. v3.0) when run in CI
+DMG_NAME="${APP_NAME}-${VERSION}"
 DMG_STAGING="dmg_staging"
 
-# Make sure the app is built first
 if [ ! -d "${APP_NAME}.app" ]; then
     echo "Error: ${APP_NAME}.app not found. Run ./build.sh first."
     exit 1
