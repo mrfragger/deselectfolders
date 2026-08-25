@@ -2,7 +2,7 @@
 set -e
 
 APP_NAME="deselectfolders"
-VERSION="1.0"
+VERSION="3.0"
 DMG_NAME="${APP_NAME}-${VERSION}"
 DMG_STAGING="dmg_staging"
 
