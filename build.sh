@@ -27,6 +27,7 @@ if [ -f AppIcon.icns ]; then
 fi
 
 swiftc -O main.swift -o "$BUILD_DIR/MacOS/$APP_NAME" \
+    -target arm64-apple-macos11 \
     -framework Cocoa -framework Carbon -framework ApplicationServices
 
 codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_NAME.app"
