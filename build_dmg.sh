@@ -3,7 +3,8 @@ set -e
 
 APP_NAME="deselectfolders"
 VERSION="3.0"
-DMG_NAME="${APP_NAME}-${VERSION}"
+# DMG_NAME="${APP_NAME}-${VERSION}"
+DMG_NAME="${APP_NAME}"
 DMG_STAGING="dmg_staging"
 
 # Make sure the app is built first
