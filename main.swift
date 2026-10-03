@@ -6,15 +6,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var progressMenuItem: NSMenuItem!
     var cancelMenuItem: NSMenuItem!
-
+    var sortMenuItems: [CopySortMode: NSMenuItem] = [:]
+    var openInTextEditItem: NSMenuItem!
+    var hotKeyRefDurations: EventHotKeyRef?
+    var hotKeyRefDurationsBinary: EventHotKeyRef?
+    var hotKeyRefDurationsDecimal: EventHotKeyRef?
     var hotKeyRefFolders: EventHotKeyRef?
     var hotKeyRefExtensions: EventHotKeyRef?
     var hotKeyRefZip: EventHotKeyRef?
     var hotKeyRefInvert: EventHotKeyRef?
+    var hotKeyRefCopyNames: EventHotKeyRef?
+    var hotKeyRefCopyNamesDecimal: EventHotKeyRef?
+    var hotKeyRefNewFile: EventHotKeyRef?
     let hotKeyIDFolders = EventHotKeyID(signature: OSType(0x44534C46), id: 1)    // ⌃⇧↑
     let hotKeyIDExtensions = EventHotKeyID(signature: OSType(0x44534C46), id: 2) // ⌃⇧↓
     let hotKeyIDZip = EventHotKeyID(signature: OSType(0x44534C46), id: 3)        // ⌃⇧→
     let hotKeyIDInvert = EventHotKeyID(signature: OSType(0x44534C46), id: 4)     // ⌃⇧←
+    let hotKeyIDCopyNames = EventHotKeyID(signature: OSType(0x44534C46), id: 5)  // ⌃⇧C
+    let hotKeyIDCopyNamesDecimal = EventHotKeyID(signature: OSType(0x44534C46), id: 6)  // ⌃⇧⌥↑
+    let hotKeyIDNewFile = EventHotKeyID(signature: OSType(0x44534C46), id: 7)  // ⌃⇧⌥N
+    let hotKeyIDDurations = EventHotKeyID(signature: OSType(0x44534C46), id: 8)         // ⌃⇧⌥↓
+    let hotKeyIDDurationsBinary = EventHotKeyID(signature: OSType(0x44534C46), id: 9)   // ⌃⇧⌥←
+    let hotKeyIDDurationsDecimal = EventHotKeyID(signature: OSType(0x44534C46), id: 10) // ⌃⇧⌥→
+
 
     let defaults = UserDefaults.standard
     let extensionsKey = "deselectExtensions"
@@ -25,18 +39,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let ref = hotKeyRefFolders {
-            UnregisterEventHotKey(ref)
-        }
-        if let ref = hotKeyRefExtensions {
-            UnregisterEventHotKey(ref)
-        }
-        if let ref = hotKeyRefZip {
-            UnregisterEventHotKey(ref)
-        }
-        if let ref = hotKeyRefInvert {
-            UnregisterEventHotKey(ref)
-        }
+        if let ref = hotKeyRefFolders {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefExtensions {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefZip {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefInvert {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefCopyNames {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefCopyNamesDecimal {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefNewFile {UnregisterEventHotKey(ref)}
+        if let ref = hotKeyRefDurations { UnregisterEventHotKey(ref) }
+        if let ref = hotKeyRefDurationsBinary { UnregisterEventHotKey(ref) }
+        if let ref = hotKeyRefDurationsDecimal { UnregisterEventHotKey(ref) }
     }
 
 
@@ -63,8 +75,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Edit Extensions…", action: #selector(editExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Zip Selected Folders (no hidden Mac files) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "New Empty Text File  ⌃⇧⌥N", action: #selector(runNewFile), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "System Info (copy to clipboard)", action: #selector(copySystemProfilerScript), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        let sortHeader = NSMenuItem(title: "Sort Copy Names / Durations", action: nil, keyEquivalent: "")
+        sortHeader.isEnabled = false
+        menu.addItem(sortHeader)
+
+        let sortOptions: [(CopySortMode, String)] = [
+            (.abc, "Sort: ABC"),
+            (.descending, "Sort ↓ (largest / longest first)"),
+            (.ascending, "Sort ↑ (smallest / shortest first)")
+        ]
+        for (mode, title) in sortOptions {
+            let item = NSMenuItem(title: title, action: #selector(setSortMode(_:)), keyEquivalent: "")
+            item.representedObject = mode.rawValue
+            item.indentationLevel = 1
+            sortMenuItems[mode] = item
+            menu.addItem(item)
+        }
+        updateSortChecks()
+        openInTextEditItem = NSMenuItem(title: "Open Results in TextEdit", action: #selector(toggleOpenInTextEdit), keyEquivalent: "")
+        openInTextEditItem.state = UserDefaults.standard.bool(forKey: "openInTextEdit") ? .on : .off
+        menu.addItem(openInTextEditItem)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Copy Names + Sizes KiB/MiB/GiB  ⌃⇧C", action: #selector(runCopyNames), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Copy Names + Sizes (KB/MB/GB)  ⌃⇧⌥↑", action: #selector(runCopyNamesDecimal), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Copy Media Durations (no sizes)  ⌃⇧⌥↓", action: #selector(runCopyDurations), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Copy Media Durations KiB/MiB/GiB  ⌃⇧⌥←", action: #selector(runCopyDurationsBinary), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Copy Media Durations KB/MB/GB  ⌃⇧⌥→", action: #selector(runCopyDurationsDecimal), keyEquivalent: ""))
+        let ffmpegNote = NSMenuItem(title: "(brew install ffmpeg)", action: nil, keyEquivalent: "")
+        ffmpegNote.isEnabled = false
+        ffmpegNote.indentationLevel = 1
+        menu.addItem(ffmpegNote)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "System Info (copy/paste in Terminal)", action: #selector(copySystemProfilerScript), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
 
         let referenceTitle = NSMenuItem(title: "Finder Shortcuts", action: nil, keyEquivalent: "")
@@ -72,16 +118,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(referenceTitle)
 
         let shortcuts: [(String, String)] = [
-            ("Select all + expand", "⌘A"),
-            ("Expand selected folders", "⌘→"),
-            ("Collapse selected folders", "⌘←"),
+            ("Expand/Collapse selected folders", "⌘→ / ⌘←"),
             ("Expand everything recursively", "⌥⌘→"),
             ("Toggle hidden files", "⌘⇧."),
             ("Copy folder as path", "right-click + ⌥"),
-            ("Copy file(s) ⌘C", "Paste ⌥⌘V"),
+            ("Copy file(s) ⌘C", "Paste (move files) ⌥⌘V"),
             ("Delete immediately", "⌥⌘⌫"),
-            ("Option+ g© iˆ r® y¥", "2™ 3£ 8• 0º =≠"),
-            ("Option+ K OØ Tˇ V◊ X˛ Z¸", "|» ?¿ +±"),
         ]
 
         for (label, keys) in shortcuts {
@@ -121,6 +163,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 appDelegate.runZipFolder()
             case 4:
                 appDelegate.runInvertSelection()
+            case 5:
+                appDelegate.runCopyNames()
+            case 6:
+                appDelegate.runCopyNamesDecimal()
+            case 7:
+                appDelegate.runNewFile()
+            case 8:
+                appDelegate.runCopyDurations()
+            case 9:
+                appDelegate.runCopyDurationsBinary()
+            case 10:
+                appDelegate.runCopyDurationsDecimal()
             default:
                 break
             }
@@ -131,6 +185,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_DownArrow), UInt32(controlKey | shiftKey), hotKeyIDExtensions, GetApplicationEventTarget(), 0, &hotKeyRefExtensions)
         RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey), hotKeyIDZip, GetApplicationEventTarget(), 0, &hotKeyRefZip)
         RegisterEventHotKey(UInt32(kVK_LeftArrow), UInt32(controlKey | shiftKey), hotKeyIDInvert, GetApplicationEventTarget(), 0, &hotKeyRefInvert)
+        RegisterEventHotKey(UInt32(kVK_ANSI_C), UInt32(controlKey | shiftKey), hotKeyIDCopyNames, GetApplicationEventTarget(), 0, &hotKeyRefCopyNames)
+        RegisterEventHotKey(UInt32(kVK_UpArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDCopyNamesDecimal, GetApplicationEventTarget(), 0, &hotKeyRefCopyNamesDecimal)
+        RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(controlKey | shiftKey | optionKey), hotKeyIDNewFile, GetApplicationEventTarget(), 0, &hotKeyRefNewFile)
+        RegisterEventHotKey(UInt32(kVK_DownArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDDurations, GetApplicationEventTarget(), 0, &hotKeyRefDurations)
+        RegisterEventHotKey(UInt32(kVK_LeftArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDDurationsBinary, GetApplicationEventTarget(), 0, &hotKeyRefDurationsBinary)
+        RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDDurationsDecimal, GetApplicationEventTarget(), 0, &hotKeyRefDurationsDecimal)
     }
 
 
@@ -146,8 +206,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         invertSelection()
     }
 
+    @objc func runCopyNames() {
+        copySelectedNamesWithSizes(decimal: false)
+    }
+
+    @objc func runCopyNamesDecimal() {
+        copySelectedNamesWithSizes(decimal: true)
+    }
+
     @objc func runZipFolder() {
         zipSelectedFolders()
+    }
+
+    @objc func runCopyDurations() {
+        copyMediaDurations(sizeMode: .none)
+    }
+
+    @objc func runCopyDurationsBinary() {
+        copyMediaDurations(sizeMode: .binary)
+    }
+
+    @objc func runCopyDurationsDecimal() {
+        copyMediaDurations(sizeMode: .decimal)
+    }
+
+    @objc func runNewFile() {
+        createNewTextFile()
+    }
+
+    @objc func setSortMode(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String {
+            UserDefaults.standard.set(raw, forKey: "copySortMode")
+            updateSortChecks()
+        }
+    }
+
+    func updateSortChecks() {
+        let current = currentSortMode()
+        for (mode, item) in sortMenuItems {
+            item.state = (mode == current) ? .on : .off
+        }
+    }
+
+    @objc func toggleOpenInTextEdit() {
+        let newValue = !UserDefaults.standard.bool(forKey: "openInTextEdit")
+        UserDefaults.standard.set(newValue, forKey: "openInTextEdit")
+        openInTextEditItem.state = newValue ? .on : .off
     }
 
     // MARK: - Zip progress UI
@@ -661,6 +765,376 @@ func zipFolder(at folderURL: URL, onProgress: @escaping (Int) -> Void)
     }
 }
 
+// MARK: - Copy names + sizes
+
+/// Paths of everything selected in Finder (files and folders).
+func getSelectedItemPaths() -> [String]? {
+    let script = """
+    tell application "Finder"
+        set thePaths to {}
+        repeat with theItem in (get selection)
+            set end of thePaths to (POSIX path of (theItem as alias))
+        end repeat
+        return thePaths
+    end tell
+    """
+    guard let appleScript = NSAppleScript(source: script) else { return nil }
+    var errorDict: NSDictionary?
+    let result = appleScript.executeAndReturnError(&errorDict)
+    if errorDict != nil { return nil }
+
+    var paths: [String] = []
+    if result.numberOfItems > 0 {
+        for i in 1...result.numberOfItems {
+            if let str = result.atIndex(i)?.stringValue {
+                paths.append(str)
+            }
+        }
+    }
+    return paths
+}
+
+/// File size, or the recursive total for a folder.
+func totalSize(of url: URL) -> UInt64 {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return 0 }
+
+    if !isDir.boolValue {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        return UInt64(size)
+    }
+
+    guard let enumerator = FileManager.default.enumerator(
+        at: url,
+        includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+        options: []
+    ) else { return 0 }
+
+    var total: UInt64 = 0
+    for case let fileURL as URL in enumerator {
+        let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        if values?.isRegularFile == true, let size = values?.fileSize {
+            total += UInt64(size)
+        }
+    }
+    return total
+}
+
+/// Binary: 1.15GiB / 563.1MiB / 357.0KiB   Decimal: 1.23GB / 580.2MB / 365.5KB
+func formatSize(_ bytes: UInt64, decimal: Bool = false) -> String {
+    let b = Double(bytes)
+    let k: Double = decimal ? 1_000 : 1_024
+    let m = k * k
+    let g = m * k
+
+    if b >= g { return String(format: decimal ? "%.2fGB"  : "%.2fGiB", b / g) }
+    if b >= m { return String(format: decimal ? "%.1fMB"  : "%.1fMiB", b / m) }
+    if b >= k { return String(format: decimal ? "%.1fKB"  : "%.1fKiB", b / k) }
+    return "\(bytes)B"
+}
+
+func copySelectedNamesWithSizes(decimal: Bool = false) {
+    guard let paths = getSelectedItemPaths() else {
+        showErrorAlert(
+            title: "Copy Failed",
+            message: "Could not read Finder's selection. Make sure Automation access is granted: System Settings → Privacy & Security → Automation → deselectfolders → Finder."
+        )
+        return
+    }
+    guard !paths.isEmpty else {
+        NSSound.beep()
+        return
+    }
+
+    let sortMode = currentSortMode()
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        let urls = paths
+            .map { URL(fileURLWithPath: $0) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+        let sizes = urls.map { totalSize(of: $0) }
+        let totalBytes = sizes.reduce(0, +)
+
+        var order = Array(urls.indices)   // already in name order
+        if sortMode != .abc {
+            order.sort { a, b in
+                if sizes[a] != sizes[b] {
+                    return sortMode == .descending ? sizes[a] > sizes[b] : sizes[a] < sizes[b]
+                }
+                return a < b
+            }
+        }
+
+        var lines: [String] = []
+        for i in order {
+            let name = urls[i].lastPathComponent
+            let size = formatSize(sizes[i], decimal: decimal)
+            lines.append("\(size) \(name)")
+        }
+
+        let binary = formatSize(totalBytes, decimal: false)
+        let si = formatSize(totalBytes, decimal: true)
+        lines.append(decimal ? "Total \(si) or \(binary)" : "Total \(binary) or \(si)")
+
+        let text = lines.joined(separator: "\n")
+
+        DispatchQueue.main.async {
+            deliverOutput(text, baseName: "names")
+        }
+    }
+}
+
+// MARK: - Media durations
+
+enum DurationSizeMode {
+    case none, binary, decimal
+}
+
+let mediaExtensions: Set<String> = [
+    // audio
+    "opus", "mp3", "m4a", "flac", "aac", "wav", "ogg", "oga", "wma", "aiff", "aif",
+    // video
+    "mp4", "m4v", "mov", "mkv", "avi", "webm", "wmv", "flv", "ts", "mpg", "mpeg"
+]
+
+/// GUI apps don't inherit your shell PATH, so check the usual Homebrew locations.
+func findFFprobe() -> String? {
+    let candidates = ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"]
+    return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+}
+
+/// All media files at a URL: the file itself, or every media file inside a folder.
+func mediaFiles(at url: URL) -> [URL] {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return [] }
+
+    if !isDir.boolValue {
+        return mediaExtensions.contains(url.pathExtension.lowercased()) ? [url] : []
+    }
+
+    guard let enumerator = FileManager.default.enumerator(
+        at: url,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]   // skips .DS_Store and ._* files
+    ) else { return [] }
+
+    var results: [URL] = []
+    for case let fileURL as URL in enumerator {
+        guard mediaExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
+        if (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
+            results.append(fileURL)
+        }
+    }
+    return results
+}
+
+/// Duration in seconds via ffprobe, or 0 if it can't be read.
+func mediaDuration(of url: URL, ffprobe: String) -> Double {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: ffprobe)
+    process.arguments = ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", url.path]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+
+    do { try process.run() } catch { return 0 }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()   // read before waiting
+    process.waitUntilExit()
+
+    let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return Double(text) ?? 0
+}
+
+/// 58h 35m  (under an hour: 3m 20s)
+func formatDuration(_ seconds: Double) -> String {
+    let total = Int(seconds.rounded())
+    let h = total / 3600
+    let m = (total % 3600) / 60
+    let s = total % 60
+    if h > 0 { return String(format: "%dh %02dm", h, m) }
+    return String(format: "%dm %02ds", m, s)
+}
+
+func copyMediaDurations(sizeMode: DurationSizeMode) {
+    guard let ffprobe = findFFprobe() else {
+        showErrorAlert(
+            title: "ffprobe Not Found",
+            message: "Media durations need ffmpeg. Install it in Terminal with:\n\nbrew install ffmpeg"
+        )
+        return
+    }
+    guard let paths = getSelectedItemPaths() else {
+        showErrorAlert(
+            title: "Copy Failed",
+            message: "Could not read Finder's selection. Make sure Automation access is granted: System Settings → Privacy & Security → Automation → deselectfolders → Finder."
+        )
+        return
+    }
+    guard !paths.isEmpty else {
+        NSSound.beep()
+        return
+    }
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        let urls = paths
+            .map { URL(fileURLWithPath: $0) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+        // Gather every media file, remembering which selected item it belongs to
+        var allFiles: [URL] = []
+        var owner: [Int] = []
+        for (i, url) in urls.enumerated() {
+            let files = mediaFiles(at: url)
+            allFiles.append(contentsOf: files)
+            owner.append(contentsOf: Array(repeating: i, count: files.count))
+        }
+
+        // Run ffprobe on many files at once
+        var durations = [Double](repeating: 0, count: allFiles.count)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: allFiles.count) { i in
+            let d = mediaDuration(of: allFiles[i], ffprobe: ffprobe)
+            lock.lock()
+            durations[i] = d
+            lock.unlock()
+        }
+
+        var perItem = [Double](repeating: 0, count: urls.count)
+        var mediaCount = [Int](repeating: 0, count: urls.count)
+        for (i, d) in durations.enumerated() {
+            perItem[owner[i]] += d
+            mediaCount[owner[i]] += 1
+        }
+
+        var sizes = [UInt64](repeating: 0, count: urls.count)
+        if sizeMode != .none {
+            sizes = urls.map { totalSize(of: $0) }
+        }
+
+        let sortMode = currentSortMode()
+        let decimal = (sizeMode == .decimal)
+
+        var order = Array(urls.indices)   // already in name order
+        if sortMode != .abc {
+            order.sort { a, b in
+                if perItem[a] != perItem[b] {
+                    return sortMode == .descending ? perItem[a] > perItem[b] : perItem[a] < perItem[b]
+                }
+                return a < b
+            }
+        }
+
+        var lines: [String] = []
+        for i in order {
+            let name = urls[i].lastPathComponent
+            let duration = mediaCount[i] == 0 ? "no media" : formatDuration(perItem[i])
+            let sizeText = sizeMode == .none ? "" : formatSize(sizes[i], decimal: decimal)
+
+            // Always: duration name size  (size omitted for "no sizes")
+            let parts = [duration, name, sizeText]
+            lines.append(parts.filter { !$0.isEmpty }.joined(separator: " "))
+        }
+
+        let totalDuration = formatDuration(perItem.reduce(0, +))
+        switch sizeMode {
+        case .none:
+            lines.append("Total \(totalDuration)")
+        case .binary, .decimal:
+            let totalBytes = sizes.reduce(0, +)
+            let binary = formatSize(totalBytes, decimal: false)
+            let si = formatSize(totalBytes, decimal: true)
+            lines.append(sizeMode == .binary
+                ? "Total \(binary) or \(si) \(totalDuration)"
+                : "Total \(si) or \(binary) \(totalDuration)")
+        }
+
+        let text = lines.joined(separator: "\n")
+
+        DispatchQueue.main.async {
+            deliverOutput(text, baseName: "durations")
+        }
+    }
+}
+
+// MARK: - New empty text file
+
+/// Folder of the front Finder window, or the Desktop if no window is open.
+func getFrontFinderFolderPath() -> String? {
+    let script = """
+    tell application "Finder"
+        try
+            return POSIX path of (target of front Finder window as alias)
+        on error
+            return POSIX path of (path to desktop folder)
+        end try
+    end tell
+    """
+    guard let appleScript = NSAppleScript(source: script) else { return nil }
+    var errorDict: NSDictionary?
+    let result = appleScript.executeAndReturnError(&errorDict)
+    if errorDict != nil { return nil }
+    return result.stringValue
+}
+
+func selectInFinder(_ url: URL) {
+    let escaped = url.path
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    let script = """
+    tell application "Finder"
+        activate
+        select (POSIX file "\(escaped)" as alias)
+    end tell
+    """
+    var errorDict: NSDictionary?
+    NSAppleScript(source: script)?.executeAndReturnError(&errorDict)
+}
+
+/// Presses Return with no modifiers (Finder treats Return on a selected item as Rename).
+func pressReturnKey() {
+    let src = CGEventSource(stateID: .hidSystemState)
+    for down in [true, false] {
+        let event = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Return), keyDown: down)
+        event?.flags = []   // don't inherit ⌃⇧ from the hotkey that's still held
+        event?.post(tap: .cghidEventTap)
+    }
+}
+
+func createNewTextFile() {
+    guard let folderPath = getFrontFinderFolderPath() else {
+        showErrorAlert(
+            title: "New File Failed",
+            message: "Could not read Finder's window. Make sure Automation access is granted: System Settings → Privacy & Security → Automation → deselectfolders → Finder."
+        )
+        return
+    }
+
+    let folderURL = URL(fileURLWithPath: folderPath, isDirectory: true)
+    let fm = FileManager.default
+
+    // untitled.txt, then untitled 2.txt, untitled 3.txt ...
+    var fileURL = folderURL.appendingPathComponent("untitled.txt")
+    var n = 2
+    while fm.fileExists(atPath: fileURL.path) {
+        fileURL = folderURL.appendingPathComponent("untitled \(n).txt")
+        n += 1
+    }
+
+    guard fm.createFile(atPath: fileURL.path, contents: Data(), attributes: nil) else {
+        showErrorAlert(title: "New File Failed", message: "Could not create a file in \(folderURL.lastPathComponent). Check that you have write permission there.")
+        return
+    }
+
+    selectInFinder(fileURL)
+
+    // Give Finder a moment to come forward and select the file, then start rename
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        pressReturnKey()
+    }
+}
+
 func getSelectedFolderPaths() -> [String]? {
     let script = """
     tell application "Finder"
@@ -779,6 +1253,49 @@ func findAllOutlines(in element: AXUIElement, results: inout [AXUIElement]) {
     for child in children {
         findAllOutlines(in: child, results: &results)
     }
+}
+
+// MARK: - Sort preference for the Copy actions
+
+enum CopySortMode: String {
+    case abc, descending, ascending
+}
+
+// MARK: - Output delivery (clipboard + optional TextEdit)
+
+func deliverOutput(_ text: String, baseName: String) {
+    // Always copy to the clipboard
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(text, forType: .string)
+
+    guard UserDefaults.standard.bool(forKey: "openInTextEdit") else {
+        NSSound(named: "Pop")?.play()
+        return
+    }
+
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyyMMdd_HHmmss"
+    let fileName = "\(baseName).\(formatter.string(from: Date())).txt"
+    let fileURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(fileName)
+
+    do {
+        try text.write(to: fileURL, atomically: true, encoding: .utf8)
+    } catch {
+        showErrorAlert(title: "Could Not Open TextEdit", message: error.localizedDescription)
+        return
+    }
+
+    NSWorkspace.shared.open(
+        [fileURL],
+        withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
+        configuration: NSWorkspace.OpenConfiguration(),
+        completionHandler: nil
+    )
+}
+
+func currentSortMode() -> CopySortMode {
+    CopySortMode(rawValue: UserDefaults.standard.string(forKey: "copySortMode") ?? "") ?? .abc
 }
 
 let app = NSApplication.shared

@@ -4,14 +4,20 @@ A macOS menu bar utility for Finder power users. Select a mix of files and
 folders in List View, then use a global hotkey to deselect just the folders
 (or just files with specific extensions) — useful when you want to
 copy/move only files without manually Cmd-clicking every folder out of
-your selection.
+your selection. Copy to clipboard filenames with or without their file sizes and optionally sorted. Copy to clipboard filenames of media with their durations and optionally sorted.
 
 ## Shortcuts
 
 - `⌃⇧↑` — Deselect folders from current selection
 - `⌃⇧↓` — Deselect files matching configured extensions (default: jpg, pdf)
+- `⌃⇧←` — Invert Selection 
 - `⌃⇧→` — Zip Selected Folders (no hidden MacOS files) .DS_Store,  __MACOSX*
-
+- `⌃⇧⌥N` — New Empty Text File
+- `⌃⇧C` — Copy Names + Sizes KiB/MiB/GiB  
+- `⌃⇧⌥↑` — Copy Names + Sizes (KB/MB/GB)  
+- `⌃⇧⌥↓` — Copy Media Durations (no sizes)
+- `⌃⇧⌥←` — Copy Media Durations KiB/MiB/GiB
+- `⌃⇧⌥→` — Copy Media Durations KB/MB/GB
 Edit the extension list from the menu bar icon → "Edit Extensions…"
 
 scripts to copy to clipboard to paste into Terminal
@@ -59,6 +65,11 @@ zip -r -q "$zipfile" "$folder" \
 ```bash
 chmod +x build.sh
 ./build.sh
+```
+
+building dmg, if accessibility permission issue arise
+```bash
+tccutil reset Accessibility com.mrfragger.deselectfolders ; tccutil reset AppleEvents com.mrfragger.deselectfolders ; ./build.sh
 ```
 
 Uses the macOS Accessibility API (`AXUIElement`) to inspect Finder's
