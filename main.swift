@@ -4,6 +4,8 @@ import ApplicationServices
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
+    var progressMenuItem: NSMenuItem!
+    var cancelMenuItem: NSMenuItem!
 
     var hotKeyRefFolders: EventHotKeyRef?
     var hotKeyRefExtensions: EventHotKeyRef?
@@ -41,11 +43,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
 
+        progressMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        progressMenuItem.isEnabled = false
+        progressMenuItem.isHidden = true
+        menu.addItem(progressMenuItem)
+
+        cancelMenuItem = NSMenuItem(title: "Cancel Zipping", action: #selector(cancelZipping), keyEquivalent: "")
+        cancelMenuItem.isHidden = true
+        menu.addItem(cancelMenuItem)
+
         menu.addItem(NSMenuItem(title: "Deselect Folders  ⌃⇧↑", action: #selector(runDeselectFolders), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Deselect by Extension  ⌃⇧↓", action: #selector(runDeselectExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Extensions…", action: #selector(editExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Zip Folder (no .DS_Store) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Zip Selected Folders (no hidden Mac files) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "System Info (copy to clipboard)", action: #selector(copySystemProfilerScript), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
@@ -64,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ("Copy file(s) ⌘C", "Paste ⌥⌘V"),
             ("Delete immediately", "⌥⌘⌫"),
             ("Option+ g© iˆ r® y¥", "2™ 3£ 8• 0º =≠"),
-            ("Option+ K OØ Tˇ V◊ X˛ Z¸", "|» ?¿ +±"),
+            ("Option+ K OØ Tˇ V◊ X˛ Z¸", "|» ?¿ +±"),
         ]
 
         for (label, keys) in shortcuts {
@@ -123,7 +134,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func runZipFolder() {
-        zipSelectedFolder()
+        zipSelectedFolders()
+    }
+
+    // MARK: - Zip progress UI
+
+    private func monoAttributed(_ text: String) -> NSAttributedString {
+        let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        return NSAttributedString(string: text, attributes: [.font: font])
+    }
+
+    private func pad(_ n: Int, width: Int) -> String {
+        let s = String(n)
+        return String(repeating: " ", count: max(0, width - s.count)) + s
+    }
+
+    private func setProgressText(bar: String, menu: String) {
+        statusItem.button?.attributedTitle = monoAttributed(bar)
+        progressMenuItem.attributedTitle = monoAttributed(menu)
+    }
+
+    func beginProgress() {
+        statusItem.length = NSStatusItem.variableLength
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "archivebox.fill", accessibilityDescription: "Zipping")
+            button.imagePosition = .imageLeft
+        }
+        setProgressText(bar: " Preparing…", menu: "Preparing…")
+        progressMenuItem.isHidden = false
+        cancelMenuItem.isHidden = false
+    }
+
+    func updateProgress(index: Int, total: Int, name: String, percent: Int) {
+        let w = String(total).count
+        let bar = " \(pad(index, width: w))/\(total) \(pad(percent, width: 3))%"
+        let menu = "Zipping \(pad(index, width: w)) of \(total): \(name) — \(pad(percent, width: 3))%"
+        setProgressText(bar: bar, menu: menu)
+    }
+
+    func endProgress() {
+        statusItem.length = NSStatusItem.squareLength
+        if let button = statusItem.button {
+            button.attributedTitle = NSAttributedString(string: "")
+            button.title = ""
+            button.image = NSImage(systemSymbolName: "folder.badge.minus", accessibilityDescription: "Deselect Folders")
+        }
+        progressMenuItem.attributedTitle = nil
+        progressMenuItem.isHidden = true
+        cancelMenuItem.isHidden = true
+    }
+
+    @objc func cancelZipping() {
+        zipLock.lock()
+        zipCancelRequested = true
+        currentZipProcess?.terminate()
+        zipLock.unlock()
+        progressMenuItem.attributedTitle = monoAttributed("Cancelling…")
     }
 
     @objc func copySystemProfilerScript() {
@@ -306,7 +372,40 @@ func deselectByExtension(_ extensions: [String]) {
     }
 }
 
-func zipSelectedFolder() {
+
+// MARK: - Zipping
+
+// Hidden macOS files/folders to leave out of archives
+let zipExcludes: [String] = [
+    "*.DS_Store",
+    "*/.DS_Store",
+    "*/__MACOSX/*",
+    "__MACOSX/*",
+    "*/._*",
+    "._*",
+    "*/.AppleDouble/*",
+    "*/.Spotlight-V100/*",
+    "*/.Trashes/*",
+    "*/.fseventsd/*",
+    "*/.TemporaryItems/*",
+    "*/.localized",
+    "*/.VolumeIcon.icns",
+    "*/Icon\r"
+]
+
+var isZipping = false
+
+// Shared state so the Cancel menu item can stop the running zip
+let zipLock = NSLock()
+var currentZipProcess: Process?
+var zipCancelRequested = false
+
+func zipSelectedFolders() {
+    if isZipping {
+        showErrorAlert(title: "Zip In Progress", message: "Please wait for the current zip operation to finish, or choose Cancel Zipping from the menu.")
+        return
+    }
+
     guard let folderPaths = getSelectedFolderPaths() else {
         showErrorAlert(
             title: "Zip Failed",
@@ -315,53 +414,203 @@ func zipSelectedFolder() {
         return
     }
 
-    guard folderPaths.count == 1 else {
-        if folderPaths.isEmpty {
-            showErrorAlert(title: "No Folder Selected", message: "Select exactly one folder in Finder, then try again.")
-        } else {
-            showErrorAlert(title: "Too Many Folders Selected", message: "Select exactly one folder. You currently have \(folderPaths.count) folders selected.")
-        }
+    guard !folderPaths.isEmpty else {
+        showErrorAlert(title: "No Folder Selected", message: "Select one or more folders in Finder, then try again.")
         return
     }
 
-    let folderURL = URL(fileURLWithPath: folderPaths[0])
+    isZipping = true
+    zipLock.lock()
+    zipCancelRequested = false
+    zipLock.unlock()
+
+    let appDelegate = NSApp.delegate as? AppDelegate
+    appDelegate?.beginProgress()
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        var succeeded: [String] = []
+        var failures: [String] = []
+        var cancelled = false
+        let total = folderPaths.count
+
+        for (i, path) in folderPaths.enumerated() {
+            zipLock.lock()
+            let stop = zipCancelRequested
+            zipLock.unlock()
+            if stop { cancelled = true; break }
+
+            let folderURL = URL(fileURLWithPath: path).standardizedFileURL
+            let name = folderURL.lastPathComponent
+
+            DispatchQueue.main.async {
+                appDelegate?.updateProgress(index: i + 1, total: total, name: name, percent: 0)
+            }
+
+            let result = zipFolder(at: folderURL) { percent in
+                DispatchQueue.main.async {
+                    appDelegate?.updateProgress(index: i + 1, total: total, name: name, percent: percent)
+                }
+            }
+
+            if result.cancelled {
+                cancelled = true
+                break
+            } else if result.success {
+                succeeded.append(name)
+            } else {
+                failures.append("\(name): \(result.message)")
+            }
+        }
+
+        DispatchQueue.main.async {
+            isZipping = false
+            appDelegate?.endProgress()
+
+            if cancelled {
+                showInfoAlert(title: "Cancelled", message: "Zipping was cancelled. Completed before cancelling: \(succeeded.count) of \(total).")
+            } else if failures.isEmpty {
+                let msg = succeeded.count == 1
+                    ? "Created \(succeeded[0]).zip"
+                    : "Created \(succeeded.count) zip files next to the original folders."
+                showInfoAlert(title: "Zipped", message: msg)
+            } else {
+                var msg = failures.joined(separator: "\n")
+                if !succeeded.isEmpty {
+                    msg = "Succeeded: \(succeeded.count)\nFailed: \(failures.count)\n\n" + msg
+                }
+                showErrorAlert(title: "Zip Failed", message: msg)
+            }
+        }
+    }
+}
+
+/// Counts the files zip is expected to add (skips the hidden Mac files we exclude).
+func countFiles(in folderURL: URL) -> Int {
+    guard let enumerator = FileManager.default.enumerator(
+        at: folderURL,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: []
+    ) else { return 0 }
+
+    let skipDirs: Set<String> = ["__MACOSX", ".AppleDouble", ".Spotlight-V100", ".Trashes", ".fseventsd", ".TemporaryItems"]
+    var count = 0
+
+    for case let url as URL in enumerator {
+        let name = url.lastPathComponent
+        if skipDirs.contains(name) {
+            enumerator.skipDescendants()
+            continue
+        }
+        if name == ".DS_Store" || name == ".localized" || name == ".VolumeIcon.icns" || name.hasPrefix("._") {
+            continue
+        }
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+            continue
+        }
+        count += 1
+    }
+    return count
+}
+
+/// True if a line of zip output is a file (not a directory) being added.
+func isFileEntry(_ line: String) -> Bool {
+    let t = line.trimmingCharacters(in: .whitespaces)
+    guard t.hasPrefix("adding: ") || t.hasPrefix("updating: ") else { return false }
+    guard let r = t.range(of: " (", options: .backwards) else { return true }
+    return !t[..<r.lowerBound].hasSuffix("/")
+}
+
+/// Zips one folder into "<parent>/<folderName>.zip". Call from a background thread.
+/// onProgress receives 0...99 as files are added.
+func zipFolder(at folderURL: URL, onProgress: @escaping (Int) -> Void)
+    -> (success: Bool, cancelled: Bool, message: String) {
+
     let folderName = folderURL.lastPathComponent
     let zipName = "\(folderName).zip"
     let parentURL = folderURL.deletingLastPathComponent()
+    let destZip = parentURL.appendingPathComponent(zipName)
+
+    // Remove any old zip so zip creates a fresh archive instead of updating it
+    if FileManager.default.fileExists(atPath: destZip.path) {
+        do {
+            try FileManager.default.removeItem(at: destZip)
+        } catch {
+            return (false, false, "Could not replace existing zip: \(error.localizedDescription)")
+        }
+    }
+
+    let totalFiles = max(countFiles(in: folderURL), 1)
 
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-    process.currentDirectoryURL = folderURL
-    process.arguments = ["-r", zipName, ".", "-x", "*.DS_Store", "-x", "*__MACOSX*", "-x", zipName]
+    process.currentDirectoryURL = parentURL
+    process.arguments = ["-r", zipName, folderName, "-x"] + zipExcludes
 
+    // stdout and stderr share one pipe that we read continuously (no deadlock)
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = pipe
 
     do {
         try process.run()
-        process.waitUntilExit()
-        if process.terminationStatus == 0 {
-            // Move the zip from inside the folder to the parent directory
-            let sourceZip = folderURL.appendingPathComponent(zipName)
-            let destZip = parentURL.appendingPathComponent(zipName)
-
-            do {
-                if FileManager.default.fileExists(atPath: destZip.path) {
-                    try FileManager.default.removeItem(at: destZip)
-                }
-                try FileManager.default.moveItem(at: sourceZip, to: destZip)
-                showInfoAlert(title: "Zipped", message: "Created \(zipName) in \(parentURL.lastPathComponent)")
-            } catch {
-                showErrorAlert(title: "Zip Created, Move Failed", message: "\(zipName) was created inside \(folderName) but could not be moved: \(error.localizedDescription)")
-            }
-        } else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-            showErrorAlert(title: "Zip Failed", message: output)
-        }
     } catch {
-        showErrorAlert(title: "Zip Failed", message: error.localizedDescription)
+        return (false, false, error.localizedDescription)
+    }
+
+    zipLock.lock()
+    currentZipProcess = process
+    if zipCancelRequested { process.terminate() }
+    zipLock.unlock()
+
+    var buffer = Data()
+    var filesDone = 0
+    var lastPercent = 0
+    var errorText = ""
+    let handle = pipe.fileHandleForReading
+
+    while true {
+        let chunk = handle.availableData
+        if chunk.isEmpty { break }   // EOF: zip exited
+        buffer.append(chunk)
+
+        while let nl = buffer.firstIndex(of: 0x0A) {
+            let lineData = buffer.subdata(in: buffer.startIndex..<nl)
+            buffer.removeSubrange(buffer.startIndex...nl)
+            let line = String(data: lineData, encoding: .utf8) ?? ""
+
+            if isFileEntry(line) {
+                filesDone += 1
+                let percent = min(99, filesDone * 100 / totalFiles)
+                if percent != lastPercent {
+                    lastPercent = percent
+                    onProgress(percent)
+                }
+            } else if !line.trimmingCharacters(in: .whitespaces).hasPrefix("adding:")
+                        && !line.isEmpty
+                        && errorText.count < 4000 {
+                errorText += line + "\n"
+            }
+        }
+    }
+
+    process.waitUntilExit()
+
+    zipLock.lock()
+    currentZipProcess = nil
+    let wasCancelled = zipCancelRequested
+    zipLock.unlock()
+
+    if wasCancelled {
+        try? FileManager.default.removeItem(at: destZip)
+        return (false, true, "Cancelled")
+    }
+
+    if process.terminationStatus == 0 {
+        return (true, false, "")
+    } else {
+        try? FileManager.default.removeItem(at: destZip)
+        let msg = errorText.isEmpty ? "zip exited with code \(process.terminationStatus)" : errorText
+        return (false, false, msg)
     }
 }
 
