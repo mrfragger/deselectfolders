@@ -10,9 +10,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hotKeyRefFolders: EventHotKeyRef?
     var hotKeyRefExtensions: EventHotKeyRef?
     var hotKeyRefZip: EventHotKeyRef?
+    var hotKeyRefInvert: EventHotKeyRef?
     let hotKeyIDFolders = EventHotKeyID(signature: OSType(0x44534C46), id: 1)    // ⌃⇧↑
     let hotKeyIDExtensions = EventHotKeyID(signature: OSType(0x44534C46), id: 2) // ⌃⇧↓
     let hotKeyIDZip = EventHotKeyID(signature: OSType(0x44534C46), id: 3)        // ⌃⇧→
+    let hotKeyIDInvert = EventHotKeyID(signature: OSType(0x44534C46), id: 4)     // ⌃⇧←
 
     let defaults = UserDefaults.standard
     let extensionsKey = "deselectExtensions"
@@ -30,6 +32,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             UnregisterEventHotKey(ref)
         }
         if let ref = hotKeyRefZip {
+            UnregisterEventHotKey(ref)
+        }
+        if let ref = hotKeyRefInvert {
             UnregisterEventHotKey(ref)
         }
     }
@@ -54,6 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem(title: "Deselect Folders  ⌃⇧↑", action: #selector(runDeselectFolders), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Deselect by Extension  ⌃⇧↓", action: #selector(runDeselectExtensions), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Invert Selection  ⌃⇧←", action: #selector(runInvertSelection), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Extensions…", action: #selector(editExtensions), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Zip Selected Folders (no hidden Mac files) ⌃⇧→", action: #selector(runZipFolder), keyEquivalent: ""))
@@ -113,6 +119,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 appDelegate.runDeselectExtensions()
             case 3:
                 appDelegate.runZipFolder()
+            case 4:
+                appDelegate.runInvertSelection()
             default:
                 break
             }
@@ -122,6 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_UpArrow), UInt32(controlKey | shiftKey), hotKeyIDFolders, GetApplicationEventTarget(), 0, &hotKeyRefFolders)
         RegisterEventHotKey(UInt32(kVK_DownArrow), UInt32(controlKey | shiftKey), hotKeyIDExtensions, GetApplicationEventTarget(), 0, &hotKeyRefExtensions)
         RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey), hotKeyIDZip, GetApplicationEventTarget(), 0, &hotKeyRefZip)
+        RegisterEventHotKey(UInt32(kVK_LeftArrow), UInt32(controlKey | shiftKey), hotKeyIDInvert, GetApplicationEventTarget(), 0, &hotKeyRefInvert)
     }
 
 
@@ -131,6 +140,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func runDeselectExtensions() {
         deselectByExtension(getSavedExtensions())
+    }
+
+    @objc func runInvertSelection() {
+        invertSelection()
     }
 
     @objc func runZipFolder() {
@@ -372,6 +385,40 @@ func deselectByExtension(_ extensions: [String]) {
     }
 }
 
+func invertSelection() {
+    guard AXIsProcessTrusted() else {
+        showAccessibilityAlert()
+        return
+    }
+    guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else {
+        return
+    }
+
+    let appElement = AXUIElementCreateApplication(finder.processIdentifier)
+    var windowValue: CFTypeRef?
+    AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
+    guard let window = windowValue else { return }
+
+    var outlines: [AXUIElement] = []
+    findAllOutlines(in: window as! AXUIElement, results: &outlines)
+    guard outlines.count >= 2 else { return }
+
+    let outline = outlines[1]
+    var rowsValue: CFTypeRef?
+    AXUIElementCopyAttributeValue(outline, kAXRowsAttribute as CFString, &rowsValue)
+    guard let rows = rowsValue as? [AXUIElement] else { return }
+
+    var unselected: [AXUIElement] = []
+    for row in rows {
+        var selectedValue: CFTypeRef?
+        AXUIElementCopyAttributeValue(row, kAXSelectedAttribute as CFString, &selectedValue)
+        if !((selectedValue as? Bool) ?? false) {
+            unselected.append(row)
+        }
+    }
+
+    AXUIElementSetAttributeValue(outline, kAXSelectedRowsAttribute as CFString, unselected as CFTypeRef)
+}
 
 // MARK: - Zipping
 
