@@ -75,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ("Copy file(s) ⌘C", "Paste ⌥⌘V"),
             ("Delete immediately", "⌥⌘⌫"),
             ("Option+ g© iˆ r® y¥", "2™ 3£ 8• 0º =≠"),
-            ("Option+ K OØ Tˇ V◊ X˛ Z¸", "|» ?¿ +±"),
+            ("Option+ K OØ Tˇ V◊ X˛ Z¸", "|» ?¿ +±"),
         ]
 
         for (label, keys) in shortcuts {
