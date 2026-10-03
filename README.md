@@ -10,7 +10,7 @@ your selection.
 
 - `⌃⇧↑` — Deselect folders from current selection
 - `⌃⇧↓` — Deselect files matching configured extensions (default: jpg, pdf)
-- `⌃⇧→` — zip folder excluding hidden MacOS files .DS_Store,  __MACOSX*
+- `⌃⇧→` — Zip Selected Folders (no hidden MacOS files) .DS_Store,  __MACOSX*
 
 Edit the extension list from the menu bar icon → "Edit Extensions…"
 
@@ -32,6 +32,22 @@ Grant Accessibility access when prompted
 zip folder wants access to control Finder
 ```bash
 zip -r dir.zip . -x "*.DS_Store" -x "*__MACOSX*"
+
+zip -r -q "$zipfile" "$folder" \
+   -x "*.DS_Store" \
+   -x "*/.DS_Store" \
+   -x "*/__MACOSX/*" \
+   -x "__MACOSX/*" \
+   -x "*/._*" \
+   -x "._*" \
+   -x "*/.AppleDouble/*" \
+   -x "*/.Spotlight-V100/*" \
+   -x "*/.Trashes/*" \
+   -x "*/.fseventsd/*" \
+   -x "*/.TemporaryItems/*" \
+   -x "*/.localized" \
+   -x "*/.VolumeIcon.icns" \
+   -x "*/Icon?"
 ```
 
 ## Requirements to Build and Install
