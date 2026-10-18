@@ -13,11 +13,7 @@ your selection. Copy to clipboard filenames with or without their file sizes and
 - `⌃⇧←` — Invert Selection 
 - `⌃⇧→` — Zip Selected Folders (no hidden MacOS files) .DS_Store,  __MACOSX*
 - `⌃⇧⌥N` — New Empty Text File
-- `⌃⇧C` — Copy Names + Sizes KiB/MiB/GiB  
-- `⌃⇧⌥↑` — Copy Names + Sizes (KB/MB/GB)  
-- `⌃⇧⌥↓` — Copy Media Durations (no sizes)
-- `⌃⇧⌥←` — Copy Media Durations KiB/MiB/GiB
-- `⌃⇧⌥→` — Copy Media Durations KB/MB/GB
+- `⌃⇧C` — Copy Filenames + Sizes + Media Durations 
 Edit the extension list from the menu bar icon → "Edit Extensions…"
 
 scripts to copy to clipboard to paste into Terminal

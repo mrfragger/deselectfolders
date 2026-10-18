@@ -7,27 +7,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var progressMenuItem: NSMenuItem!
     var cancelMenuItem: NSMenuItem!
     var sortMenuItems: [CopySortMode: NSMenuItem] = [:]
+    var sizeMenuItems: [CopySizeMode: NSMenuItem] = [:]
+    var durationsOffItem: NSMenuItem!
+    var durationsOnItem: NSMenuItem!
     var openInTextEditItem: NSMenuItem!
-    var hotKeyRefDurations: EventHotKeyRef?
-    var hotKeyRefDurationsBinary: EventHotKeyRef?
-    var hotKeyRefDurationsDecimal: EventHotKeyRef?
     var hotKeyRefFolders: EventHotKeyRef?
     var hotKeyRefExtensions: EventHotKeyRef?
     var hotKeyRefZip: EventHotKeyRef?
     var hotKeyRefInvert: EventHotKeyRef?
     var hotKeyRefCopyNames: EventHotKeyRef?
-    var hotKeyRefCopyNamesDecimal: EventHotKeyRef?
     var hotKeyRefNewFile: EventHotKeyRef?
     let hotKeyIDFolders = EventHotKeyID(signature: OSType(0x44534C46), id: 1)    // ⌃⇧↑
     let hotKeyIDExtensions = EventHotKeyID(signature: OSType(0x44534C46), id: 2) // ⌃⇧↓
     let hotKeyIDZip = EventHotKeyID(signature: OSType(0x44534C46), id: 3)        // ⌃⇧→
     let hotKeyIDInvert = EventHotKeyID(signature: OSType(0x44534C46), id: 4)     // ⌃⇧←
     let hotKeyIDCopyNames = EventHotKeyID(signature: OSType(0x44534C46), id: 5)  // ⌃⇧C
-    let hotKeyIDCopyNamesDecimal = EventHotKeyID(signature: OSType(0x44534C46), id: 6)  // ⌃⇧⌥↑
-    let hotKeyIDNewFile = EventHotKeyID(signature: OSType(0x44534C46), id: 7)  // ⌃⇧⌥N
-    let hotKeyIDDurations = EventHotKeyID(signature: OSType(0x44534C46), id: 8)         // ⌃⇧⌥↓
-    let hotKeyIDDurationsBinary = EventHotKeyID(signature: OSType(0x44534C46), id: 9)   // ⌃⇧⌥←
-    let hotKeyIDDurationsDecimal = EventHotKeyID(signature: OSType(0x44534C46), id: 10) // ⌃⇧⌥→
+    let hotKeyIDNewFile = EventHotKeyID(signature: OSType(0x44534C46), id: 7)    // ⌃⇧⌥N
 
 
     let defaults = UserDefaults.standard
@@ -44,11 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let ref = hotKeyRefZip {UnregisterEventHotKey(ref)}
         if let ref = hotKeyRefInvert {UnregisterEventHotKey(ref)}
         if let ref = hotKeyRefCopyNames {UnregisterEventHotKey(ref)}
-        if let ref = hotKeyRefCopyNamesDecimal {UnregisterEventHotKey(ref)}
         if let ref = hotKeyRefNewFile {UnregisterEventHotKey(ref)}
-        if let ref = hotKeyRefDurations { UnregisterEventHotKey(ref) }
-        if let ref = hotKeyRefDurationsBinary { UnregisterEventHotKey(ref) }
-        if let ref = hotKeyRefDurationsDecimal { UnregisterEventHotKey(ref) }
     }
 
 
@@ -78,7 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "New Empty Text File  ⌃⇧⌥N", action: #selector(runNewFile), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem.separator())
-        let sortHeader = NSMenuItem(title: "Sort Copy Names / Durations", action: nil, keyEquivalent: "")
+        let sortHeader = NSMenuItem(title: "Sort Copy Filenames", action: nil, keyEquivalent: "")
         sortHeader.isEnabled = false
         menu.addItem(sortHeader)
 
@@ -99,13 +90,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         openInTextEditItem.state = UserDefaults.standard.bool(forKey: "openInTextEdit") ? .on : .off
         menu.addItem(openInTextEditItem)
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Copy Names + Sizes KiB/MiB/GiB  ⌃⇧C", action: #selector(runCopyNames), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Names + Sizes (KB/MB/GB)  ⌃⇧⌥↑", action: #selector(runCopyNamesDecimal), keyEquivalent: ""))
+
+        // Copy Filenames (single action, with checkable options)
+        menu.addItem(NSMenuItem(title: "Copy Filenames:  Sizes, Media Durations  ⌃⇧C", action: #selector(runCopyNames), keyEquivalent: ""))
+
+        let sizeOptions: [(CopySizeMode, String)] = [
+            (.none, "No Sizes"),
+            (.binary, "KiB, MiB, GiB"),
+            (.decimal, "KB, MB, GB")
+        ]
+        for (mode, title) in sizeOptions {
+            let item = NSMenuItem(title: title, action: #selector(setSizeMode(_:)), keyEquivalent: "")
+            item.representedObject = mode.rawValue
+            item.indentationLevel = 1
+            sizeMenuItems[mode] = item
+            menu.addItem(item)
+        }
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Copy Media Durations (no sizes)  ⌃⇧⌥↓", action: #selector(runCopyDurations), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Media Durations KiB/MiB/GiB  ⌃⇧⌥←", action: #selector(runCopyDurationsBinary), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Media Durations KB/MB/GB  ⌃⇧⌥→", action: #selector(runCopyDurationsDecimal), keyEquivalent: ""))
-        let ffmpegNote = NSMenuItem(title: "(brew install ffmpeg)", action: nil, keyEquivalent: "")
+
+        durationsOffItem = NSMenuItem(title: "No Media Durations", action: #selector(setDurationsOff), keyEquivalent: "")
+        durationsOffItem.indentationLevel = 1
+        menu.addItem(durationsOffItem)
+        durationsOnItem = NSMenuItem(title: "Media Durations", action: #selector(setDurationsOn), keyEquivalent: "")
+        durationsOnItem.indentationLevel = 1
+        menu.addItem(durationsOnItem)
+        updateCopyChecks()
+
+        let ffmpegNote = NSMenuItem(title: "(brew install ffmpeg for Media Durations)", action: nil, keyEquivalent: "")
         ffmpegNote.isEnabled = false
         ffmpegNote.indentationLevel = 1
         menu.addItem(ffmpegNote)
@@ -165,16 +176,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 appDelegate.runInvertSelection()
             case 5:
                 appDelegate.runCopyNames()
-            case 6:
-                appDelegate.runCopyNamesDecimal()
             case 7:
                 appDelegate.runNewFile()
-            case 8:
-                appDelegate.runCopyDurations()
-            case 9:
-                appDelegate.runCopyDurationsBinary()
-            case 10:
-                appDelegate.runCopyDurationsDecimal()
             default:
                 break
             }
@@ -186,11 +189,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey), hotKeyIDZip, GetApplicationEventTarget(), 0, &hotKeyRefZip)
         RegisterEventHotKey(UInt32(kVK_LeftArrow), UInt32(controlKey | shiftKey), hotKeyIDInvert, GetApplicationEventTarget(), 0, &hotKeyRefInvert)
         RegisterEventHotKey(UInt32(kVK_ANSI_C), UInt32(controlKey | shiftKey), hotKeyIDCopyNames, GetApplicationEventTarget(), 0, &hotKeyRefCopyNames)
-        RegisterEventHotKey(UInt32(kVK_UpArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDCopyNamesDecimal, GetApplicationEventTarget(), 0, &hotKeyRefCopyNamesDecimal)
         RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(controlKey | shiftKey | optionKey), hotKeyIDNewFile, GetApplicationEventTarget(), 0, &hotKeyRefNewFile)
-        RegisterEventHotKey(UInt32(kVK_DownArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDDurations, GetApplicationEventTarget(), 0, &hotKeyRefDurations)
-        RegisterEventHotKey(UInt32(kVK_LeftArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDDurationsBinary, GetApplicationEventTarget(), 0, &hotKeyRefDurationsBinary)
-        RegisterEventHotKey(UInt32(kVK_RightArrow), UInt32(controlKey | shiftKey | optionKey), hotKeyIDDurationsDecimal, GetApplicationEventTarget(), 0, &hotKeyRefDurationsDecimal)
     }
 
 
@@ -207,27 +206,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func runCopyNames() {
-        copySelectedNamesWithSizes(decimal: false)
-    }
-
-    @objc func runCopyNamesDecimal() {
-        copySelectedNamesWithSizes(decimal: true)
+        copyFilenames(sizeMode: currentSizeMode(), includeDurations: currentIncludeDurations())
     }
 
     @objc func runZipFolder() {
         zipSelectedFolders()
-    }
-
-    @objc func runCopyDurations() {
-        copyMediaDurations(sizeMode: .none)
-    }
-
-    @objc func runCopyDurationsBinary() {
-        copyMediaDurations(sizeMode: .binary)
-    }
-
-    @objc func runCopyDurationsDecimal() {
-        copyMediaDurations(sizeMode: .decimal)
     }
 
     @objc func runNewFile() {
@@ -246,6 +229,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         for (mode, item) in sortMenuItems {
             item.state = (mode == current) ? .on : .off
         }
+    }
+
+    @objc func setSizeMode(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String {
+            UserDefaults.standard.set(raw, forKey: "copySizeMode")
+            updateCopyChecks()
+        }
+    }
+
+    @objc func setDurationsOff() {
+        UserDefaults.standard.set(false, forKey: "copyDurations")
+        updateCopyChecks()
+    }
+
+    @objc func setDurationsOn() {
+        UserDefaults.standard.set(true, forKey: "copyDurations")
+        updateCopyChecks()
+    }
+
+    func updateCopyChecks() {
+        let size = currentSizeMode()
+        for (mode, item) in sizeMenuItems {
+            item.state = (mode == size) ? .on : .off
+        }
+        let on = currentIncludeDurations()
+        durationsOffItem.state = on ? .off : .on
+        durationsOnItem.state = on ? .on : .off
     }
 
     @objc func toggleOpenInTextEdit() {
@@ -765,7 +775,7 @@ func zipFolder(at folderURL: URL, onProgress: @escaping (Int) -> Void)
     }
 }
 
-// MARK: - Copy names + sizes
+// MARK: - Copy filenames (+ sizes, + media durations)
 
 /// Paths of everything selected in Finder (files and folders).
 func getSelectedItemPaths() -> [String]? {
@@ -833,63 +843,7 @@ func formatSize(_ bytes: UInt64, decimal: Bool = false) -> String {
     return "\(bytes)B"
 }
 
-func copySelectedNamesWithSizes(decimal: Bool = false) {
-    guard let paths = getSelectedItemPaths() else {
-        showErrorAlert(
-            title: "Copy Failed",
-            message: "Could not read Finder's selection. Make sure Automation access is granted: System Settings → Privacy & Security → Automation → deselectfolders → Finder."
-        )
-        return
-    }
-    guard !paths.isEmpty else {
-        NSSound.beep()
-        return
-    }
-
-    let sortMode = currentSortMode()
-
-    DispatchQueue.global(qos: .userInitiated).async {
-        let urls = paths
-            .map { URL(fileURLWithPath: $0) }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-
-        let sizes = urls.map { totalSize(of: $0) }
-        let totalBytes = sizes.reduce(0, +)
-
-        var order = Array(urls.indices)   // already in name order
-        if sortMode != .abc {
-            order.sort { a, b in
-                if sizes[a] != sizes[b] {
-                    return sortMode == .descending ? sizes[a] > sizes[b] : sizes[a] < sizes[b]
-                }
-                return a < b
-            }
-        }
-
-        var lines: [String] = []
-        for i in order {
-            let name = urls[i].lastPathComponent
-            let size = formatSize(sizes[i], decimal: decimal)
-            lines.append("\(size) \(name)")
-        }
-
-        let binary = formatSize(totalBytes, decimal: false)
-        let si = formatSize(totalBytes, decimal: true)
-        lines.append(decimal ? "Total \(si) or \(binary)" : "Total \(binary) or \(si)")
-
-        let text = lines.joined(separator: "\n")
-
-        DispatchQueue.main.async {
-            deliverOutput(text, baseName: "names")
-        }
-    }
-}
-
 // MARK: - Media durations
-
-enum DurationSizeMode {
-    case none, binary, decimal
-}
 
 let mediaExtensions: Set<String> = [
     // audio
@@ -957,14 +911,20 @@ func formatDuration(_ seconds: Double) -> String {
     return String(format: "%dm %02ds", m, s)
 }
 
-func copyMediaDurations(sizeMode: DurationSizeMode) {
-    guard let ffprobe = findFFprobe() else {
-        showErrorAlert(
-            title: "ffprobe Not Found",
-            message: "Media durations need ffmpeg. Install it in Terminal with:\n\nbrew install ffmpeg"
-        )
-        return
+/// One action for everything: names, optional sizes, optional media durations.
+func copyFilenames(sizeMode: CopySizeMode, includeDurations: Bool) {
+    var ffprobePath: String? = nil
+    if includeDurations {
+        guard let found = findFFprobe() else {
+            showErrorAlert(
+                title: "ffprobe Not Found",
+                message: "Media durations need ffmpeg. Install it in Terminal with:\n\nbrew install ffmpeg\n\nOr choose \"No Media Durations\" in the menu."
+            )
+            return
+        }
+        ffprobePath = found
     }
+
     guard let paths = getSelectedItemPaths() else {
         showErrorAlert(
             title: "Copy Failed",
@@ -977,50 +937,61 @@ func copyMediaDurations(sizeMode: DurationSizeMode) {
         return
     }
 
+    let sortMode = currentSortMode()
+
     DispatchQueue.global(qos: .userInitiated).async {
         let urls = paths
             .map { URL(fileURLWithPath: $0) }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
 
-        // Gather every media file, remembering which selected item it belongs to
-        var allFiles: [URL] = []
-        var owner: [Int] = []
-        for (i, url) in urls.enumerated() {
-            let files = mediaFiles(at: url)
-            allFiles.append(contentsOf: files)
-            owner.append(contentsOf: Array(repeating: i, count: files.count))
-        }
-
-        // Run ffprobe on many files at once
-        var durations = [Double](repeating: 0, count: allFiles.count)
-        let lock = NSLock()
-        DispatchQueue.concurrentPerform(iterations: allFiles.count) { i in
-            let d = mediaDuration(of: allFiles[i], ffprobe: ffprobe)
-            lock.lock()
-            durations[i] = d
-            lock.unlock()
-        }
-
+        // Durations (only when enabled)
         var perItem = [Double](repeating: 0, count: urls.count)
         var mediaCount = [Int](repeating: 0, count: urls.count)
-        for (i, d) in durations.enumerated() {
-            perItem[owner[i]] += d
-            mediaCount[owner[i]] += 1
+
+        if let ffprobe = ffprobePath {
+            var allFiles: [URL] = []
+            var owner: [Int] = []
+            for (i, url) in urls.enumerated() {
+                let files = mediaFiles(at: url)
+                allFiles.append(contentsOf: files)
+                owner.append(contentsOf: Array(repeating: i, count: files.count))
+            }
+
+            var durations = [Double](repeating: 0, count: allFiles.count)
+            let lock = NSLock()
+            DispatchQueue.concurrentPerform(iterations: allFiles.count) { i in
+                let d = mediaDuration(of: allFiles[i], ffprobe: ffprobe)
+                lock.lock()
+                durations[i] = d
+                lock.unlock()
+            }
+
+            for (i, d) in durations.enumerated() {
+                perItem[owner[i]] += d
+                mediaCount[owner[i]] += 1
+            }
         }
 
+        // Sizes: needed for display, or for sorting by size when durations are off
+        let needSizes = sizeMode != .none || (!includeDurations && sortMode != .abc)
         var sizes = [UInt64](repeating: 0, count: urls.count)
-        if sizeMode != .none {
+        if needSizes {
             sizes = urls.map { totalSize(of: $0) }
         }
 
-        let sortMode = currentSortMode()
         let decimal = (sizeMode == .decimal)
 
         var order = Array(urls.indices)   // already in name order
         if sortMode != .abc {
             order.sort { a, b in
-                if perItem[a] != perItem[b] {
-                    return sortMode == .descending ? perItem[a] > perItem[b] : perItem[a] < perItem[b]
+                if includeDurations {
+                    if perItem[a] != perItem[b] {
+                        return sortMode == .descending ? perItem[a] > perItem[b] : perItem[a] < perItem[b]
+                    }
+                } else {
+                    if sizes[a] != sizes[b] {
+                        return sortMode == .descending ? sizes[a] > sizes[b] : sizes[a] < sizes[b]
+                    }
                 }
                 return a < b
             }
@@ -1029,31 +1000,39 @@ func copyMediaDurations(sizeMode: DurationSizeMode) {
         var lines: [String] = []
         for i in order {
             let name = urls[i].lastPathComponent
-            let duration = mediaCount[i] == 0 ? "no media" : formatDuration(perItem[i])
             let sizeText = sizeMode == .none ? "" : formatSize(sizes[i], decimal: decimal)
 
-            // Always: duration name size  (size omitted for "no sizes")
-            let parts = [duration, name, sizeText]
+            let parts: [String]
+            if includeDurations {
+                // duration name size
+                let duration = mediaCount[i] == 0 ? "no media" : formatDuration(perItem[i])
+                parts = [duration, name, sizeText]
+            } else {
+                // size name
+                parts = [sizeText, name]
+            }
             lines.append(parts.filter { !$0.isEmpty }.joined(separator: " "))
         }
 
-        let totalDuration = formatDuration(perItem.reduce(0, +))
-        switch sizeMode {
-        case .none:
-            lines.append("Total \(totalDuration)")
-        case .binary, .decimal:
+        // Total line (skipped when there is nothing to total)
+        var totalParts: [String] = []
+        if sizeMode != .none {
             let totalBytes = sizes.reduce(0, +)
             let binary = formatSize(totalBytes, decimal: false)
             let si = formatSize(totalBytes, decimal: true)
-            lines.append(sizeMode == .binary
-                ? "Total \(binary) or \(si) \(totalDuration)"
-                : "Total \(si) or \(binary) \(totalDuration)")
+            totalParts.append(decimal ? "\(si) or \(binary)" : "\(binary) or \(si)")
+        }
+        if includeDurations {
+            totalParts.append(formatDuration(perItem.reduce(0, +)))
+        }
+        if !totalParts.isEmpty {
+            lines.append("Total " + totalParts.joined(separator: " "))
         }
 
         let text = lines.joined(separator: "\n")
 
         DispatchQueue.main.async {
-            deliverOutput(text, baseName: "durations")
+            deliverOutput(text, baseName: "filenames")
         }
     }
 }
@@ -1255,10 +1234,22 @@ func findAllOutlines(in element: AXUIElement, results: inout [AXUIElement]) {
     }
 }
 
-// MARK: - Sort preference for the Copy actions
+// MARK: - Preferences for the Copy Filenames action
 
 enum CopySortMode: String {
     case abc, descending, ascending
+}
+
+enum CopySizeMode: String {
+    case none, binary, decimal
+}
+
+func currentSizeMode() -> CopySizeMode {
+    CopySizeMode(rawValue: UserDefaults.standard.string(forKey: "copySizeMode") ?? "") ?? .binary
+}
+
+func currentIncludeDurations() -> Bool {
+    UserDefaults.standard.bool(forKey: "copyDurations")
 }
 
 // MARK: - Output delivery (clipboard + optional TextEdit)
